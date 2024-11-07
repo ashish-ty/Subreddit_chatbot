@@ -2,12 +2,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import praw
-import pandas as pd
-from together import Together
-from dotenv import load_dotenv
-load_dotenv()
 import os
-from langchain_together import ChatTogether
+from dotenv import load_dotenv
+import chromadb
+from langchain_together import TogetherEmbeddings, ChatTogether
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -19,16 +20,26 @@ reddit = praw.Reddit(
     user_agent=os.getenv("REDDIT_USER_AGENT"),
 )
 
-# Initialize Together AI client
+# Initialize Together AI Embeddings
+embeddings_model = TogetherEmbeddings(
+    model="togethercomputer/m2-bert-80M-8k-retrieval",
+)
+
+# Initialize text splitter
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+# Initialize ChromaDB client
+chroma_client = chromadb.Client()
+
+# Create a collection in ChromaDB
+collection = chroma_client.create_collection(name="subreddit_embeddings")
+
+# Initialize ChatTogether with Llama model
 llm = ChatTogether(
-    api_key=os.getenv("together_API_Key"),
+    api_key=os.getenv("TOGETHER_API_KEY"),
     temperature=0.0,
     model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
 )
-
-
-# Initialize vector store
-vector_store = None
 
 @app.route('/connect', methods=['POST'])
 def connect_subreddit():
@@ -40,46 +51,40 @@ def connect_subreddit():
         # Get subreddit content
         subreddit = reddit.subreddit(subreddit_name)
         posts = []
-        
-        # Collect hot posts and their comments
-        for post in subreddit.hot(limit=50):
+
+        for post in subreddit.hot(limit=10):
             post_data = {
                 'title': post.title,
                 'content': post.selftext,
-                'comments': []
+                'comments': [comment.body for comment in post.comments[:20]]
             }
-            
-            post.comments.replace_more(limit=0)
-            for comment in post.comments[:20]:
-                post_data['comments'].append(comment.body)
-            
             posts.append(post_data)
-        
+
         # Prepare text for vectorization
-        all_text = []
-        for post in posts:
-            all_text.append(post['title'])
-            all_text.append(post['content'])
-            all_text.extend(post['comments'])
-        
-        # Create embeddings using Together AI
-        # embeddings = []
+        all_text = [post['content'] + "\n" + "\n".join(post['comments']) for post in posts]
+
+        # Split text into chunks
+        # split_texts = []
         # for text in all_text:
-        #     completion = client.chat.completions.create(
-        #         model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-        #         messages=[{"role": "user", "content": text}]
-        #     )
-        #     embeddings.append(completion['choices'][0]['message']['content'])
-        
-        # # Store embeddings in a suitable data structure
-        # global vector_store
-        # vector_store = embeddings
-        
+        #     splits = text_splitter.split_documents([{"text": text}])
+        #     split_texts.extend([split['text'] for split in splits])
+
+        # Create embeddings using Together AI
+        embeddings = embeddings_model.embed_documents(all_text)
+
+        # Add embeddings to ChromaDB
+        for idx, (text, embedding) in enumerate(zip(all_text, embeddings)):
+            collection.add(
+                documents=[text],
+                metadatas=[{"text": str(idx)}],
+                ids=[str(idx)]
+            )
+
         return jsonify({
             'status': 'success',
             'message': f'Successfully connected to r/{subreddit_name}'
         })
-        
+
     except Exception as e:
         print(f"Error connecting to subreddit: {e}")
         return jsonify({
@@ -92,28 +97,33 @@ def chat():
     data = request.json
     query = data['message']
     
-    if vector_store is None:
+    if collection is None:
         return jsonify({
             'status': 'error',
             'message': 'Please connect to a subreddit first'
         }), 400
-    
+
     try:
-        # Search similar content in vector store
-        # Implement a similarity search using the embeddings
-        # This is a placeholder for the actual similarity search logic
-        results = vector_store[:3]  # Replace with actual search logic
-        
-        # Format response
-        response = "Based on the subreddit content:\n\n"
-        for doc in results:
-            response += f"- {doc}\n\n"
-        
+        # Query ChromaDB for relevant documents
+        results = collection.query(
+            query_texts=[query],
+            n_results=1
+        )
+
+        # Extract the document text from the query results
+        document_text = results["documents"][0][0]
+
+        # Send the document text to the Llama LLM
+        response = llm(document_text)
+        print(response)
+        # # Format response
+        # llm_response = response.choices[0].message.content
+
         return jsonify({
             'status': 'success',
-            'message': response
+            'message': document_text
         })
-        
+
     except Exception as e:
         return jsonify({
             'status': 'error',
