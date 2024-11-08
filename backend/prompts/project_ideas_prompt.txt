@@ -1,0 +1,19 @@
+<s>User Query: {user_query}</s>
+<s>User Context: {user_context}</s>
+
+[INST]Based on the user's query and provided context, generate a JSON object containing the top project recommendation. Each recommendation should be a dictionary matching the following Pydantic model:
+
+```python
+from pydantic import BaseModel, Field
+
+class ProjectRecommendation(BaseModel):
+    title: str = Field(description="The title of the project")
+    description: str = Field(description="A brief 1-2 sentence description of the project") 
+    why_good_fit: str = Field(description="Reasons why this project would be a good fit for the user")
+    links: list[str] = Field(description="Relevant links or resources to learn more about the project")
+```
+
+The recommendations should be tailored to the user's interests and needs as reflected in the query and context. Provide enough detail for the user to quickly evaluate whether each project aligns with their goals. Focus on suggesting unique, high-quality projects that the user is likely to find valuable.
+
+Return the JSON object with the 5 project recommendations.
+[/INST]

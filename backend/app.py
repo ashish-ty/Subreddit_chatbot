@@ -7,11 +7,22 @@ from dotenv import load_dotenv
 import chromadb
 from langchain_together import TogetherEmbeddings, ChatTogether
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain import PromptTemplate
+from langchain.chains import LLMChain
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from operator import itemgetter
+from langchain_core.pydantic_v1 import BaseModel, Field
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+class ProjectRecommendation(BaseModel):
+    title: str = Field(description="The title of the project")
+    description: str = Field(description="A brief 1-2 sentence description of the project")
+    why_good_fit: str = Field(description="Reasons why this project would be a good fit for the user")
+    links: list[str] = Field(description="Relevant links or resources to learn more about the project")
 
 # Initialize Reddit API client
 reddit = praw.Reddit(
@@ -111,17 +122,29 @@ def chat():
         )
 
         # Extract the document text from the query results
-        document_text = results["documents"][0][0]
+        context = results["documents"][0][0]
 
-        # Send the document text to the Llama LLM
-        response = llm(document_text)
+        # Read the prompt template
+        with open('Subreddit_chatbot/backend/prompts/project_ideas_prompt.txt', 'r') as file:
+            prompt_template = file.read()
+        project_ideas_prompt = PromptTemplate(
+            input_variables=["user_query", "user_context"],
+            template=prompt_template,
+        )
+
+        rag_chain = (
+            {"user_query": itemgetter("user_query"),
+            "user_context": itemgetter("user_context")}
+            | project_ideas_prompt
+            | llm
+            | JsonOutputParser(pydantic_object=ProjectRecommendation)
+        )
+        response = rag_chain.invoke({"user_query": query, "user_context": context})
         print(response)
-        # # Format response
-        # llm_response = response.choices[0].message.content
 
         return jsonify({
             'status': 'success',
-            'message': document_text
+            'message': response
         })
 
     except Exception as e:
