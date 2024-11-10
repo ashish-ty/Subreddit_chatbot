@@ -7,12 +7,19 @@ import { Label } from "../components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { AlertCircle, CheckCircle2, Send, MessageCircle, RefreshCw } from 'lucide-react'
 
-interface ChatMessage {
-  type: 'user' | 'bot'
-  content: string
+interface ProjectRecommendation {
+  title: string;
+  description: string;
+  why_good_fit: string;
+  links: string[];
 }
 
-export default function Component() {
+interface ChatMessage {
+  type: 'user' | 'bot';
+  content: string | ProjectRecommendation[];
+}
+
+export default function Page() {
   const [subreddit, setSubreddit] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'success' | 'error'>('idle')
@@ -61,7 +68,6 @@ export default function Component() {
     const message = messageInput.value.trim()
     
     if (message) {
-      // Add user message immediately
       const userMessage: ChatMessage = {
         type: 'user',
         content: message
@@ -81,15 +87,15 @@ export default function Component() {
         })
 
         const data = await response.json()
+        console.log('Data received from backend:', data.message)
 
         if (data.status === 'success') {
           const botMessage: ChatMessage = {
             type: 'bot',
-            content: data.message
+            content: data.message as ProjectRecommendation[]
           }
           setChatMessages(prev => [...prev, botMessage])
         } else {
-          // Add error message as bot message
           const errorMessage: ChatMessage = {
             type: 'bot',
             content: 'Sorry, I encountered an error processing your request.'
@@ -125,32 +131,34 @@ export default function Component() {
 
       <main className="flex-grow container mx-auto p-4 flex flex-col md:flex-row gap-4">
         {connectionStatus !== 'success' && (
-          <Card className="md:w-1/3 bg-gray-800 border-gray-700">
-            <CardHeader>
-              <CardTitle className="text-purple-400">Connect to Subreddit</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleConnect} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="subreddit" className="text-gray-300">Subreddit Name</Label>
-                  <Input
-                    id="subreddit"
-                    placeholder="Enter subreddit name"
-                    value={subreddit}
-                    onChange={(e) => setSubreddit(e.target.value)}
-                    required
-                    className="bg-gray-700 text-gray-200 placeholder-gray-400 border-gray-600"
-                  />
-                </div>
-                <Button type="submit" className="w-full bg-purple-600 text-white hover:bg-purple-700 transition-colors" disabled={connectionStatus === 'connecting'}>
-                  {connectionStatus === 'connecting' ? 'Connecting...' : 'Connect'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex justify-center w-full">
+            <Card className="w-full max-w-md bg-gray-800 border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-purple-400">Connect to Subreddit</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleConnect} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="subreddit" className="text-gray-300">Subreddit Name</Label>
+                    <Input
+                      id="subreddit"
+                      placeholder="Enter subreddit name"
+                      value={subreddit}
+                      onChange={(e) => setSubreddit(e.target.value)}
+                      required
+                      className="bg-gray-700 text-gray-200 placeholder-gray-400 border-gray-600"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-purple-600 text-white hover:bg-purple-700 transition-colors" disabled={connectionStatus === 'connecting'}>
+                    {connectionStatus === 'connecting' ? 'Connecting...' : 'Connect'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
-        <div className={connectionStatus === 'success' ? 'w-full' : 'md:w-2/3'}>
+        <div className={`flex-grow ${connectionStatus === 'success' ? 'w-full' : 'md:w-2/3'}`}>
           {connectionStatus === 'success' && (
             <Card className="h-full flex flex-col bg-gray-800 border-gray-700">
               <CardHeader className="flex flex-row items-center justify-between">
@@ -168,7 +176,26 @@ export default function Component() {
                   {chatMessages.map((message, index) => (
                     <div key={index} className={`mb-2 flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`p-2 rounded-lg max-w-[80%] ${message.type === 'user' ? 'bg-purple-900' : 'bg-gray-700'} text-gray-200`}>
-                        {message.type === 'user' ? `You: ${message.content}` : `r/${subreddit}: ${message.content}`}
+                        {message.type === 'user' ? (
+                          `You: ${message.content}`
+                        ) : (
+                          Array.isArray(message.content) ? (
+                            message.content.map((recommendation, idx) => (
+                              <div key={idx} className="mb-4">
+                                <h2 className="title">{recommendation.title}</h2>
+                                <p className="description">{recommendation.description}</p>
+                                <p className="why-good-fit">{recommendation.why_good_fit}</p>
+                                <ul className="links">
+                                  {recommendation.links.map((link, linkIdx) => (
+                                    <li key={linkIdx}><a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-400">{link}</a></li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))
+                          ) : (
+                            `r/${subreddit}: ${message.content}`
+                          )
+                        )}
                       </div>
                     </div>
                   ))}
